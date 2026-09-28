@@ -1,26 +1,184 @@
 ---
-title: "Mon site web avec Quarto"
+title: "Production de vocalisations ultrasonores de deux groupes de souriceaux"
 format: html
 editor: visual
 ---
 
-## Quarto
+## Introduction
 
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+L'objectif consiste en la camparaison des productions ultrasonores de souriceaux élevés dans un environnement parental **monoparental** (avec leur mère) et dans un environnement **biparental** (avec leur mère et leur père)...
 
-## Running Code
+## Méthode
 
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
-
-```{r}
-1 + 1
-```
-
-You can add options to executable code like this
+Un total de 15 individus ont été testés, 8 issus du groupe Monoparental et 7 du groupe Biparental. Chaque individu est issu d'une unité parentale différente. Seules le vocalisations supérieures à 60kHz ont été retenues...
 
 ```{r}
 #| echo: false
-2 * 2
+#| label: chargement des fichiers
+#| output: false
+
+install.packages("here")
+
+csv_dir <- here::here("usv_data")
+#setwd("~/Data/Sync_Mega/Enseignement/Master/M1/Systèmes_complexes/usv_data")
+
+fichiers<-list.files(csv_dir) #les fichiers du répertoire courant.
+
+
+data_tous_fichiers<-NULL
+
+for(n in 1:length(fichiers)){
+  data_fichier_n<-NULL
+  
+  condition <- substr(fichiers[n],1,1)
+  parents <- strsplit(fichiers[n],"_")[[1]][1]
+  portée <- strsplit(fichiers[n],"_")[[1]][2]
+  individu <- paste(parents,strsplit(fichiers[n],"_")[[1]][3],sep="_")
+  phase <- substr(individu, nchar(individu), nchar(individu)) 
+  individu <- substr(individu, 1, nchar(individu)-1)
+  frequence <- paste(strsplit(fichiers[n],"_")[[1]][4], strsplit(fichiers[n],"_")[[1]][5], sep="")
+  time<- substr(strsplit(fichiers[n],"_")[[1]][6], 1, nchar(strsplit(fichiers[n],"_")[[1]][6])-4)
+  data_fichier_n <- read.csv(paste(csv_dir,fichiers[n],sep="/"))
+  data_fichier_n<-data.frame(condition, parents, portée, individu, phase, frequence, time, data_fichier_n)
+  
+  data_tous_fichiers<-rbind(data_tous_fichiers,data_fichier_n)
+  
+}
+
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+```{r}
+#| echo: false
+#| label: Mse en forme du fichier de données
+
+
+data_tous_fichiers$time<-as.integer(data_tous_fichiers$time)
+
+#suppression de la colonne "X"
+data_tous_fichiers$X <-NULL
+
+#transformation des "chr" en facteur
+for(n in 1:length(data_tous_fichiers)){
+  if(is.character(data_tous_fichiers[,n])) { data_tous_fichiers[,n] <- as.factor(data_tous_fichiers[,n]) } 
+}
+
+
+```
+
+```{r}
+#| echo: false
+#| label: Calcul  du nombre de vocalisatipons par minute
+
+
+nb_usv_per_min<-NULL
+for(n in 1:length(unique(data_tous_fichiers$file))){
+  for(t in seq(0, 240, 60)){
+    condition<-subset(data_tous_fichiers, time==t & file== unique(data_tous_fichiers$file)[n])$condition[1]
+    parents<-subset(data_tous_fichiers, time==t & file== unique(data_tous_fichiers$file)[n])$parents[1]
+    portée<-subset(data_tous_fichiers, time==t & file== unique(data_tous_fichiers$file)[n])$portée[1]
+    individu<-subset(data_tous_fichiers, time==t & file== unique(data_tous_fichiers$file)[n])$individu[1]
+    phase<-subset(data_tous_fichiers, time==t & file== unique(data_tous_fichiers$file)[n])$phase[1]
+    frequence<-subset(data_tous_fichiers, time==t & file== unique(data_tous_fichiers$file)[n])$frequence[1]
+    time<-subset(data_tous_fichiers, time==t & file== unique(data_tous_fichiers$file)[n])$time[1]
+    nb_usv<-length(which(is.na(subset(data_tous_fichiers, time==t & file== unique(data_tous_fichiers$file)[n])$temp_detect_deb)==F, arr.ind=T))
+
+    nb_usv_per_min<-rbind(nb_usv_per_min, data.frame(condition,parents,portée,individu,phase,time,frequence,nb_usv))
+  }
+}
+
+
+```
+
+## Résultats
+
+#### Nombre de vocalisations par minutes
+
+Les vocalisations à l'isolement des souriceaux issus de portées monoparentales et biparentales ne diffèrent pas significativement (Tab 1). Le nombre de vocalisations émises ne changent pas significativement au cours des 5 minutes de test (Fig 1)...
+
+```{r}
+#| echo: false
+#| label: Figure
+#| include: true
+#| fig-cap:  Figure 1 :Nombre de vocalisations par minute de souriceaux après isolement. Les souriceaux sont soit issus d'un environnement parental monoparental (M) soit biparental (B).  Les boxplots représentent les médianes, les premiers et troisième quartile. Les lignes verticales représentent les plus petites et plus grandes valeures adjacentes, les points correpondent à des valeurs extrêmes dépassant ces valeurs adjacentes.
+
+
+
+nb_usv_per_min$ord_condition<- ordered(nb_usv_per_min$condition, levels=c("M","B"))
+library(ggplot2)
+p<-ggplot(subset(nb_usv_per_min, phase=="a"),
+         aes(x=as.factor(time), y=
+         nb_usv, fill=ord_condition))+
+         geom_boxplot()
+  p<-p+labs(x="Time (s)", y="Number of USV") 
+  p+scale_fill_discrete(name = "Condition", palette="Paired")
+  
+```
+
+```{r}
+#| echo: false
+#| include: false
+#| label: analyse statistique
+
+library(glmmTMB)
+library(car)
+
+a1 <- glmmTMB(nb_usv ~ condition * time +
+                    (1|individu) + (1|parents),
+                  data = subset(nb_usv_per_min, phase == "a"),
+                  family = genpois(link = "log"),
+                  control = glmmTMBControl(
+                    optimizer = optim,
+                    optArgs = list(method = "BFGS")
+                  ))
+
+Anova(a1)
+
+```
+
+```{r}
+#| echo: false
+#| include: false
+#| label: library Tableau
+
+library(dplyr)
+library(gt)
+library(gtsummary)
+library(tibble)
+
+
+```
+
+```{r}
+#| echo: false
+#| include: true
+#| label: Tableau
+
+anova_results <- Anova(a1, type = 3) %>%  
+  as.data.frame() |> 
+  rownames_to_column("variable")
+
+tbl1 <- anova_results %>%
+  gt() %>%
+  tab_style(
+    style = cell_text(weight = "bold"),
+    locations = cells_body(
+      columns = `Pr(>Chisq)`,
+      rows = `Pr(>Chisq)` < 0.05
+    )
+  ) %>%
+  tab_header(title="Tableau 1 : Number of vocalisations")%>%
+  fmt_number(
+    columns = c(`Chisq`),
+    decimals = 2
+  ) %>%
+  fmt_number(
+    columns = `Pr(>Chisq)`,
+    decimals = 3 # ou plus si nécessaire
+  )%>%
+  sub_missing(
+    columns = everything(),
+    missing_text = "-"
+  )
+tbl1
+
+```
